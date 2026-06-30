@@ -65,6 +65,9 @@ def git_info(rel_path, kernel_root):
     cwd = str(kernel_root)
     path = str(rel_path)
 
+    # Detect shallow clone
+    shallow = (Path(kernel_root) / ".git" / "shallow").exists()
+
     log = run(["git", "log", "--oneline", "--follow", "--", path], cwd=cwd)
     commits = [l for l in log.splitlines() if l.strip()]
 
@@ -85,6 +88,7 @@ def git_info(rel_path, kernel_root):
         "last_date":      date_list[-1] if date_list else "unknown",
         "recent_commits": commits[:6],
         "top_authors":    author_counts.most_common(5),
+        "shallow":        shallow,
     }
 
 
@@ -116,22 +120,35 @@ def maintainer_info(rel_path, kernel_root):
 
 
 def kconfig_deps(driver_abs, kernel_root):
-    """Find the Kconfig entry for this driver and return (depends, selects)."""
-    kconfig = driver_abs.parent / "Kconfig"
-    if not kconfig.exists():
-        return [], []
+    """Find the Kconfig entry for this driver, searching up the directory tree."""
+    stem = driver_abs.stem.upper().replace("-", "_")
+    # Build candidate symbols: exact stem, stem minus common suffixes, parent dir name
+    suffixes = ["_MAIN", "_CORE", "_DRV", "_PCI", "_I2C", "_SPI", "_PLATFORM",
+                "_BASE", "_HW", "_LIB", "_COMMON"]
+    candidates = [stem]
+    for suf in suffixes:
+        if stem.endswith(suf):
+            candidates.append(stem[: -len(suf)])
+    candidates.append(driver_abs.parent.name.upper().replace("-", "_"))
+    # Deduplicate while preserving order
+    seen = set()
+    symbols = [c for c in candidates if c not in seen and not seen.add(c)]
 
-    content = kconfig.read_text(errors="replace")
-    # Config symbol is usually UPPER(stem).replace('-','_')
-    symbol = driver_abs.stem.upper().replace("-", "_")
-
-    blocks = re.split(r"^config ", content, flags=re.M)
-    for block in blocks:
-        first_line = block.split("\n")[0].strip()
-        if first_line == symbol or symbol in first_line:
-            deps    = re.findall(r"^\s+depends on\s+(.+)$", block, re.M)
-            selects = re.findall(r"^\s+select\s+(.+)$",    block, re.M)
-            return deps, selects
+    search_dir = driver_abs.parent
+    while search_dir != kernel_root.parent:
+        kconfig = search_dir / "Kconfig"
+        if kconfig.exists():
+            content = kconfig.read_text(errors="replace")
+            blocks = re.split(r"^config ", content, flags=re.M)
+            for symbol in symbols:
+                for block in blocks:
+                    if block.split("\n")[0].strip() == symbol:
+                        deps    = re.findall(r"^\s+depends on\s+(.+)$", block, re.M)
+                        selects = re.findall(r"^\s+select\s+(.+)$",    block, re.M)
+                        return deps, selects
+        if search_dir == kernel_root:
+            break
+        search_dir = search_dir.parent
     return [], []
 
 
@@ -171,7 +188,10 @@ def generate(driver_path_arg, kernel_root_arg=None, output_arg=None):
     today = date.today().isoformat()
 
     print(f"  Kernel ver  : {kver}")
-    print(f"  Commits     : {git['num_commits']}")
+    if git["shallow"]:
+        print("  WARNING: shallow clone — git history is incomplete. Run:")
+        print("    git fetch --unshallow")
+    print(f"  Commits     : {git['num_commits']}{' (incomplete — shallow clone)' if git['shallow'] else ''}")
     print(f"  Maintainers : {len(maint)} found")
 
     # ── Build the document ───────────────────────────────────────────────────
@@ -228,6 +248,10 @@ def generate(driver_path_arg, kernel_root_arg=None, output_arg=None):
         blank()
 
     h("Git History")
+    if git["shallow"]:
+        L.append("> ⚠️ **Shallow clone detected** — history below is incomplete.")
+        L.append("> Run `git fetch --unshallow` and regenerate for accurate contributor data.")
+        blank()
     L.append("**Top contributors:**")
     blank()
     for author, count in git["top_authors"]:
