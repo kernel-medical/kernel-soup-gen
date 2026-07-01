@@ -5,7 +5,6 @@ Creates a minimal fake kernel tree in a temp directory and verifies
 that the tool extracts the expected fields correctly.
 """
 
-import os
 import subprocess
 import sys
 import tempfile
@@ -93,7 +92,7 @@ def check_output(output_file: Path):
         ("Author",            "Test Author"),
         ("Kernel version",    "6.15"),
         ("Kconfig symbol",    "CONFIG_TEST_ADC"),
-        ("TODO placeholder",  "[TODO]"),
+        ("TODO placeholder",  "complete this"),
     ]
     failures = []
     for label, expected in checks:
