@@ -69,7 +69,7 @@ def git_info(rel_path, kernel_root):
     shallow = (Path(kernel_root) / ".git" / "shallow").exists()
 
     log = run(["git", "log", "--oneline", "--follow", "--", path], cwd=cwd)
-    commits = [l for l in log.splitlines() if l.strip()]
+    commits = [line for line in log.splitlines() if line.strip()]
 
     dates = run(
         ["git", "log", "--reverse", "--follow", "--format=%ad",
@@ -116,7 +116,7 @@ def maintainer_info(rel_path, kernel_root):
     if not script.exists():
         return []
     out = run(["perl", str(script), "--nogit", str(rel_path)], cwd=str(kernel_root))
-    return [l for l in out.splitlines() if l.strip()][:5]
+    return [line for line in out.splitlines() if line.strip()][:5]
 
 
 def kconfig_deps(driver_abs, kernel_root):
@@ -235,6 +235,8 @@ def generate(driver_path_arg, kernel_root_arg=None, output_arg=None):
 
     if deps or selects:
         h("Kconfig Dependencies")
+        config_sym = f"CONFIG_{driver_name.upper().replace('-', '_')}"
+        L.append(f"**Kconfig symbol:** `{config_sym}`")
         if deps:
             L.append(f"**depends on:** `{'`, `'.join(deps)}`")
         if selects:
